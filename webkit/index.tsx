@@ -132,38 +132,61 @@ export default async function WebkitMain() {
             // Обновляем или создаем блок с ценой
             const priceContainer = area.querySelector('.discount_final_price, .game_purchase_price, .game_purchase_price.price') as HTMLElement | null;
             let customPriceBlock = area.querySelector('.custom-price-block') as HTMLElement | null;
-            if (!customPriceBlock && priceContainer) {
+
+            // Находим контейнер скидки и действия
+            const discountPrices = area.querySelector('.discount_prices') as HTMLElement | null;
+
+            // Определяем, куда вставлять блок
+            let insertBeforeNode: HTMLElement | null = null;
+
+            if (discountPrices) {
+                // Если есть скидка — вставляем перед всем блоком скидки
+                insertBeforeNode = discountPrices;
+            } else if (priceContainer) {
+                // Если нет скидки — вставляем перед обычной ценой
+                insertBeforeNode = priceContainer;
+            }
+
+            // Вставляем блок, если ещё не вставлен
+            if (insertBeforeNode && !customPriceBlock) {
                 customPriceBlock = document.createElement('div');
                 customPriceBlock.className = 'custom-price-block';
                 customPriceBlock.style.display = 'inline-block';
                 customPriceBlock.style.marginRight = '5px';
-                customPriceBlock.style.marginLeft = '10px';
+                customPriceBlock.style.marginLeft = '5px';
+                customPriceBlock.style.marginTop = '4px'
                 customPriceBlock.style.color = '#66ccff';
-                customPriceBlock.style.verticalAlign = 'middle';
+                customPriceBlock.style.verticalAlign = 'top';
                 customPriceBlock.style.backgroundColor = '#1a252f';
                 customPriceBlock.style.padding = '5px 10px';
-                customPriceBlock.style.borderRadius = '4px';
+                customPriceBlock.style.borderRadius = '2px';
                 customPriceBlock.style.cursor = 'pointer';
-                priceContainer.parentNode?.insertBefore(customPriceBlock, priceContainer);
 
-                // Добавляем текст цены
+                // Вставляем блок в DOM
+                insertBeforeNode.parentNode?.insertBefore(customPriceBlock, insertBeforeNode);
+
+                // Добавляем span с текстом
                 const priceSpan = document.createElement('span');
                 priceSpan.className = 'price-text';
                 customPriceBlock.appendChild(priceSpan);
 
-                // Обработчик клика для показа меню (убрали параметр selectedCurrency)
+                // Обработчик клика
                 customPriceBlock.addEventListener('click', (event) => {
                     console.log("Клик по custom-price-block:", customPriceBlock);
                     event.stopPropagation();
                     showCurrencyMenu(customPriceBlock!, updatePrices);
                 });
             }
+
+            // Обновляем текст цены
             if (customPriceBlock) {
                 const priceText = customPriceBlock.querySelector('span.price-text') as HTMLElement | null;
                 if (priceText) {
                     priceText.textContent = `~ ${convertedPrice}${selectedCurrency}`;
                 }
             }
+
+            
         }
 
         // Обработка бандла
