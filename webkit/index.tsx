@@ -141,7 +141,7 @@ export default async function WebkitMain() {
                 customPriceBlock.style.color = '#66ccff';
                 customPriceBlock.style.verticalAlign = 'middle';
                 customPriceBlock.style.backgroundColor = '#1a252f';
-                customPriceBlock.style.padding = '5px 10px';
+                customPriceBlock.style.padding = '4px 10px';
                 customPriceBlock.style.borderRadius = '4px';
                 customPriceBlock.style.cursor = 'pointer';
                 priceContainer.parentNode?.insertBefore(customPriceBlock, priceContainer);
