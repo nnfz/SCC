@@ -12,7 +12,8 @@ def detect_currency(message: str) -> str:
         '₽': 'RUB',
         '$': 'USD',
         '€': 'EUR',
-        '£': 'GBP'
+        '£': 'GBP',
+        '₴': 'UAH'
     }
     
     for symbol, currency in currency_symbols.items():

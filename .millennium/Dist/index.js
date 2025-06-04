@@ -126,61 +126,7 @@ function InitializePlugins() {
 InitializePlugins()
 const __call_server_method__ = (methodName, kwargs) => Millennium.callServerMethod(pluginName, methodName, kwargs)
 const __wrapped_callable__ = (route) => MILLENNIUM_API.callable(__call_server_method__, route)
-let PluginEntryPointMain = function() { var millennium_main = (function (exports, client) {
-    'use strict';
-
-    (function() {
-        const env = {};
-        try {
-            if (process) {
-                process.env = Object.assign({}, process.env);
-                Object.assign(process.env, env);
-                return;
-            }
-        } catch (e) {} // avoid ReferenceError: process is not defined
-        globalThis.process = { env:env };
-    })();
-
-    class classname {
-        static method(country, age) {
-            console.log(`age: ${age}, country: ${country}`);
-            return "method called";
-        }
-    }
-    const cssAsset = client.staticEmbed("../styles/styles.css");
-    // export classname class to global context
-    client.Millennium.exposeObj(exports, { classname });
-    function windowCreated(context) {
-        // window create event. 
-        // you can interact directly with the document and monitor it with dom observers
-        // you can then render components in specific pages. 
-        console.log(context);
-        // here we are using `g_PopupManager`, which is Steams window manager. 
-        // every time a new window is created, we check all open windows for the context menu, and then we add our css to it.
-        client.PopupManager.m_mapPopups.data_.forEach(popup => {
-            if (popup.value_._strName === "contextmenu_1") {
-                popup.value_.m_popup.document.head.appendChild(cssAsset.toDOMElement());
-            }
-        });
-    }
-    // Declare a function that exists on the backend
-    const backendMethod = __wrapped_callable__('Backend.receive_frontend_message');
-    // Entry point on the front end of your plugin
-    async function PluginMain() {
-        console.log(cssAsset.contents);
-        // Call the backend method
-        const message = await backendMethod({ message: "Hello World From Frontend!", status: true, count: 69 });
-        console.log("Result from callServerMethod:", message);
-        client.Millennium.AddWindowCreateHook(windowCreated);
-    }
-
-    exports.default = PluginMain;
-
-    Object.defineProperty(exports, '__esModule', { value: true });
-
-    return exports;
-
-})({}, window.MILLENNIUM_API);
+let PluginEntryPointMain = function() { var millennium_main=function(e,o){"use strict";!function(){const e={};try{if(process)return process.env=Object.assign({},process.env),void Object.assign(process.env,e)}catch(e){}globalThis.process={env:e}}();const n=o.staticEmbed("../styles/styles.css");function s(e){console.log(e),o.PopupManager.m_mapPopups.data_.forEach((e=>{"contextmenu_1"===e.value_._strName&&e.value_.m_popup.document.head.appendChild(n.toDOMElement())}))}o.Millennium.exposeObj(e,{classname:class{static method(e,o){return console.log(`age: ${o}, country: ${e}`),"method called"}}});const t=__wrapped_callable__("Backend.receive_frontend_message");return e.default=async function(){console.log(n.contents);const e=await t({message:"Hello World From Frontend!",status:!0,count:69});console.log("Result from callServerMethod:",e),o.Millennium.AddWindowCreateHook(s)},Object.defineProperty(e,"__esModule",{value:!0}),e}({},window.MILLENNIUM_API);
  return millennium_main; };
 function ExecutePluginModule() {
     let MillenniumStore = window.MILLENNIUM_PLUGIN_SETTINGS_STORE[pluginName];
