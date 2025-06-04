@@ -1,4 +1,4 @@
-# SCC Plugin for Millennium
+# SCC Plugin for Millennium [BETA]
 **Simple currency converter** a simple plug-in for currency conversion, with the ability to change the currency directly in the Steam
 ## Features
 > **Showing the price next to the current one**
