@@ -13,5 +13,6 @@
 # Usage
 Just install and open the game page.
 # Credits
-[Central Bank of Russia](https://www.cbr.ru/)
-[Millenium](https://github.com/shdwmtr/millennium)
+[## Central Bank of Russia](https://www.cbr.ru/)
+
+[## Millenium](https://github.com/shdwmtr/millennium)
