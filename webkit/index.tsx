@@ -62,7 +62,7 @@ export default async function WebkitMain() {
         select.style.width = '100%';
 
         // Список валют
-        const currencies = ['RUB', 'USD', 'EUR', 'KZT', 'GBP', 'BYN'];
+        const currencies = ['RUB', 'USD', 'EUR', 'KZT', 'GBP', 'BYN', 'UAH'];
         currencies.forEach(currency => {
             const option = document.createElement('option');
             option.value = currency;
