@@ -185,7 +185,7 @@ let PluginEntryPointMain = function() { var millennium_main = (function (exports
             select.style.fontSize = '12px';
             select.style.width = '100%';
             // Список валют
-            const currencies = ['RUB', 'USD', 'EUR', 'KZT', 'GBP'];
+            const currencies = ['RUB', 'USD', 'EUR', 'KZT', 'GBP', 'UAH', 'BYN'];
             currencies.forEach(currency => {
                 const option = document.createElement('option');
                 option.value = currency;
