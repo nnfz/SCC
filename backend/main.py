@@ -11,6 +11,7 @@ def detect_currency(message: str) -> str:
         '₸': 'KZT',
         '₽': 'RUB',
         '$': 'USD',
+        'Br': 'BYN',
         '€': 'EUR',
         '£': 'GBP',
         '₴': 'UAH'
