@@ -1,43 +1,54 @@
-import { callable, Millennium, staticEmbed, PopupManager, PopupProps } from "@steambrew/client";
+import { Millennium, IconsModule, definePlugin, Field, DialogButton, callable } from '@steambrew/client';
 
 class classname {
-    static method(country: string, age: number) {
-        console.log(`age: ${age}, country: ${country}`);
-        return "method called"
-    }
+	static method(country: string, age: number) {
+		console.log(`age: ${age}, country: ${country}`);
+		return 'method called';
+	}
 }
-
-const cssAsset = staticEmbed("../styles/styles.css")
 
 // export classname class to global context
 Millennium.exposeObj({ classname });
 
-function windowCreated(context: PopupProps) {
-    // window create event. 
-    // you can interact directly with the document and monitor it with dom observers
-    // you can then render components in specific pages. 
-    console.log(context)
-
-    // here we are using `g_PopupManager`, which is Steams window manager. 
-    // every time a new window is created, we check all open windows for the context menu, and then we add our css to it.
-    PopupManager.m_mapPopups.data_.forEach(popup => {
-        if (popup.value_._strName === "contextmenu_1") {
-            popup.value_.m_popup.document.head.appendChild(cssAsset.toDOMElement())
-        }
-    })
+function windowCreated(context: any) {
+	// window create event.
+	// you can interact directly with the document and monitor it with dom observers
+	// you can then render components in specific pages.
+	console.log(context);
 }
 
 // Declare a function that exists on the backend
-const backendMethod = callable<[{ message: string, status: boolean, count: number }], boolean>('Backend.receive_frontend_message')
+const backendMethod = callable<[{ message: string; status: boolean; count: number }], boolean>('test_frontend_message_callback');
 
-// Entry point on the front end of your plugin
-export default async function PluginMain() {
+const SettingsContent = () => {
+	return (
+		<Field label="Plugin Settings" description="This is a description of the plugin settings." icon={<IconsModule.Settings />} bottomSeparator="standard" focusable>
+			<DialogButton
+				onClick={() => {
+					console.log('Button clicked!');
+				}}
+			>
+				Click Me
+			</DialogButton>
+		</Field>
+	);
+};
 
-    console.log(cssAsset.contents)
+export default definePlugin(() => {
+	// Call the backend method
+	backendMethod({
+		message: 'Hello World From Frontend!',
+		status: true,
+		count: 69,
+	}).then((message: any) => {
+		console.log('Result from backendMethod:', message);
+	});
 
-    // Call the backend method
-    const message = await backendMethod({ message: "Hello World From Frontend!", status: true, count: 69 })
-    console.log("Result from callServerMethod:", message)
+	Millennium.AddWindowCreateHook(windowCreated);
 
-    Millennium.AddWindowCreateHook(windowCreated)
-}
+	return {
+		title: 'My Plugin',
+		icon: <IconsModule.Settings />,
+		content: <SettingsContent />,
+	};
+});

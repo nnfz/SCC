@@ -1,279 +1,282 @@
-import { callable } from "@steambrew/webkit";
+const CURRENCY_SYMBOLS: Record<string, string> = {
+    '₸': 'KZT',
+    '₽': 'RUB',
+    '$': 'USD',
+    'Br': 'BYN',
+    '€': 'EUR',
+    '£': 'GBP',
+    '₴': 'UAH'
+};
 
-const receiveFrontendMethod = callable<[{ message: string, status: boolean, count: number, to_currency: string }], string>(
-    "Backend.receive_frontend_message"
-);
+const FALLBACK_RATES: Record<string, number> = {
+    'RUB': 1.0,
+    'USD': 89.5,
+    'EUR': 97.5,
+    'KZT': 0.19,
+    'GBP': 113.0,
+    'BYN': 27.5,
+    'UAH': 2.15
+};
 
-interface EditionPrice {
-    edition: string;
-    price: string;
-    numericPrice: number;
-    convertedPrice: string;
+let ratesCache: Record<string, number> | null = null;
+let ratesCacheTime = 0;
+const CACHE_TTL = 3600000;
+
+function detectCurrency(message: string): string {
+    for (const [symbol, currency] of Object.entries(CURRENCY_SYMBOLS)) {
+        if (message.includes(symbol)) return currency;
+    }
+    return 'KZT';
+}
+
+async function fetchRates(): Promise<Record<string, number>> {
+    if (ratesCache && (Date.now() - ratesCacheTime) < CACHE_TTL) {
+        return ratesCache;
+    }
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const response = await fetch("https://www.cbr-xml-daily.ru/daily_json.js", {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error("HTTP " + response.status);
+
+        const data = await response.json();
+        const rates: Record<string, number> = { 'RUB': 1.0 };
+
+        if (data && data.Valute) {
+            for (const code of Object.keys(data.Valute)) {
+                const v = data.Valute[code];
+                if (v && v.Value && v.Nominal) {
+                    rates[code] = v.Value / v.Nominal;
+                }
+            }
+        }
+
+        ratesCache = rates;
+        ratesCacheTime = Date.now();
+        return rates;
+
+    } catch (e) {
+        console.warn("[SCC] API недоступен, используем fallback:", e);
+        if (ratesCache) return ratesCache;
+        ratesCache = FALLBACK_RATES;
+        ratesCacheTime = Date.now();
+        return FALLBACK_RATES;
+    }
+}
+
+async function convertCurrency(amount: number, fromCurrency: string, toCurrency: string): Promise<string> {
+    const rates = await fetchRates();
+    const fromRate = rates[fromCurrency] || FALLBACK_RATES[fromCurrency] || 1;
+    const toRate = rates[toCurrency] || FALLBACK_RATES[toCurrency] || 1;
+    const result = Math.round(amount * fromRate / toRate);
+    return result.toLocaleString('ru-RU');
+}
+
+async function convertPriceMessage(message: string, toCurrency: string): Promise<string> {
+    const fromCurrency = detectCurrency(message);
+    const amountStr = message.replace(/[^\d.]/g, '');
+    const amount = parseFloat(amountStr) || 0;
+    if (amount === 0) return "0";
+    return await convertCurrency(amount, fromCurrency, toCurrency);
+}
+
+let currentSelectedCurrency = 'RUB';
+
+function showCurrencyMenu(priceBlock: HTMLElement, updateCallback: (currency: string) => Promise<void>) {
+    const existingMenu = document.querySelector('.currency-menu');
+    if (existingMenu) existingMenu.remove();
+
+    const menu = document.createElement('div');
+    menu.className = 'currency-menu';
+    menu.style.cssText = `
+        position: absolute;
+        top: ${priceBlock.getBoundingClientRect().bottom + window.scrollY}px;
+        left: ${priceBlock.getBoundingClientRect().left + window.scrollX}px;
+        z-index: 10000;
+        background: #2a475e;
+        border: 1px solid #66ccff;
+        border-radius: 4px;
+        padding: 5px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        min-width: 100px;
+    `;
+
+    const select = document.createElement('select');
+    select.style.cssText = `
+        background: #2a475e;
+        color: #66ccff;
+        border: none;
+        padding: 2px;
+        cursor: pointer;
+        font-size: 12px;
+        width: 100%;
+    `;
+
+    ['RUB', 'USD', 'EUR', 'KZT', 'GBP', 'BYN', 'UAH'].forEach(currency => {
+        const option = document.createElement('option');
+        option.value = currency;
+        option.textContent = currency;
+        if (currency === currentSelectedCurrency) option.selected = true;
+        select.appendChild(option);
+    });
+
+    select.addEventListener('change', async () => {
+        currentSelectedCurrency = select.value;
+        menu.remove();
+        await updateCallback(currentSelectedCurrency);
+    });
+
+    document.addEventListener('click', (e: MouseEvent) => {
+        if (!menu.contains(e.target as Node)) menu.remove();
+    }, { once: true });
+
+    menu.appendChild(select);
+    document.body.appendChild(menu);
+}
+
+function createPriceBlock(container: HTMLElement, hasDiscount: boolean): HTMLElement {
+    const block = document.createElement('div');
+    block.className = 'custom-price-block';
+    block.style.cssText = hasDiscount
+        ? 'display:inline-block;margin:0 8px 0 10px;color:#66ccff;background:#1a252f;padding:4px 10px;border-radius:4px;cursor:pointer;vertical-align:middle;'
+        : 'display:inline-block;margin:0 0 0 10px;color:#66ccff;background:#1a252f;padding:4px 10px;border-radius:4px;cursor:pointer;vertical-align:middle;';
+
+    const priceSpan = document.createElement('span');
+    priceSpan.className = 'price-text';
+    block.appendChild(priceSpan);
+
+    container.insertBefore(block, container.firstChild);
+
+    block.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showCurrencyMenu(block, updatePrices);
+    });
+
+    return block;
+}
+
+function isFreeToPlay(area: Element): boolean {
+    if (area.querySelector('.btn_addtocart .btnv6_green_white_innerfade')) {
+        const btnText = area.querySelector('.btn_addtocart .btnv6_green_white_innerfade')?.textContent?.trim().toLowerCase() || '';
+        if (btnText.includes('free') || btnText.includes('бесплатно') || btnText.includes('играть')) return true;
+    }
+
+    const priceEl = area.querySelector('.discount_final_price, .game_purchase_price') as HTMLElement | null;
+    if (priceEl) {
+        const priceText = priceEl.textContent?.trim().toLowerCase() || '';
+        if (priceText.includes('free') || priceText.includes('бесплатно')) return true;
+
+        const amountStr = priceText.replace(/[^\d.]/g, '');
+        const amount = parseFloat(amountStr) || 0;
+        if (amount === 0) return true;
+    }
+
+    return false;
+}
+
+async function updatePrices(selectedCurrency: string) {
+    console.log("[SCC] Обновление цен:", selectedCurrency);
+    currentSelectedCurrency = selectedCurrency;
+
+    // Обычные игры и бандлы
+    const purchaseAreas = document.querySelectorAll('.game_area_purchase_game');
+    for (const area of purchaseAreas) {
+        if (isFreeToPlay(area)) continue;
+
+        const priceEl = area.querySelector('.discount_final_price, .game_purchase_price') as HTMLElement | null;
+        if (!priceEl) continue;
+
+        const price = priceEl.textContent?.trim() || '';
+        const converted = await convertPriceMessage(price, selectedCurrency);
+
+        const actionBgs = area.querySelectorAll('.game_purchase_action_bg');
+        if (actionBgs.length === 0) continue;
+        const actionBg = actionBgs[actionBgs.length - 1] as HTMLElement;
+
+        const hasDiscount = !!area.querySelector('.discount_block, .discount_pct, .discount_prices')
+            && !area.querySelector('.bundle_base_discount');
+
+        let block = actionBg.querySelector('.custom-price-block') as HTMLElement | null;
+        if (!block) {
+            block = createPriceBlock(actionBg, hasDiscount);
+        } else {
+            block.style.margin = hasDiscount ? '0 8px 0 10px' : '0 0 0 10px';
+        }
+
+        const txt = block.querySelector('.price-text') as HTMLElement | null;
+        if (txt) txt.textContent = `~ ${converted} ${selectedCurrency}`;
+    }
+
+    // DLC строки
+    const dlcRows = document.querySelectorAll('.game_area_dlc_row');
+    for (const row of dlcRows) {
+        const priceEl = row.querySelector('.discount_final_price, .game_area_dlc_price') as HTMLElement | null;
+        if (!priceEl) continue;
+
+        const priceText = priceEl.textContent?.trim().toLowerCase() || '';
+        
+        if (priceText.includes('free') || priceText.includes('бесплатно')) continue;
+        const amountStr = priceText.replace(/[^\d.]/g, '');
+        const amount = parseFloat(amountStr) || 0;
+        if (amount === 0) continue;
+
+        const converted = await convertPriceMessage(priceText, selectedCurrency);
+
+        const dlcAction = row.querySelector('.dlc_purchase_action') as HTMLElement | null;
+        if (!dlcAction) continue;
+
+        const hasDiscount = !!row.querySelector('.discount_block, .discount_pct');
+
+        let block = dlcAction.querySelector('.custom-price-block') as HTMLElement | null;
+        if (!block) {
+            block = createPriceBlock(dlcAction, hasDiscount);
+        } else {
+            block.style.margin = hasDiscount ? '0 8px 0 10px' : '0 0 0 10px';
+        }
+
+        const txt = block.querySelector('.price-text') as HTMLElement | null;
+        if (txt) txt.textContent = `~ ${converted} ${selectedCurrency}`;
+    }
+
+    // DLC "Add all DLC to Cart" блок
+    const dlcPurchaseAction = document.getElementById('dlc_purchase_action') as HTMLElement | null;
+    if (dlcPurchaseAction) {
+        const priceEl = dlcPurchaseAction.querySelector('.game_purchase_price') as HTMLElement | null;
+        if (priceEl) {
+            const priceText = priceEl.textContent?.trim() || '';
+            const amountStr = priceText.replace(/[^\d.]/g, '');
+            const amount = parseFloat(amountStr) || 0;
+
+            if (amount > 0) {
+                const converted = await convertPriceMessage(priceText, selectedCurrency);
+                const hasDiscount = !!dlcPurchaseAction.querySelector('.discount_block, .discount_pct');
+
+                let block = dlcPurchaseAction.querySelector('.custom-price-block') as HTMLElement | null;
+                if (!block) {
+                    block = createPriceBlock(dlcPurchaseAction, hasDiscount);
+                } else {
+                    block.style.margin = hasDiscount ? '0 8px 0 10px' : '0 0 0 10px';
+                }
+
+                const txt = block.querySelector('.price-text') as HTMLElement | null;
+                if (txt) txt.textContent = `~ ${converted} ${selectedCurrency}`;
+            }
+        }
+    }
 }
 
 export default async function WebkitMain() {
-    console.log("WebkitMain запущен");
+    console.log("[SCC] Start");
 
-    // Проверка: страница игры
-    if (!/^\/app\/\d+/.test(window.location.pathname)) {
-        console.log("Не страница игры, пропускаем вставку цен");
-        return;
-    }
+    if (!/^\/app\/\d+/.test(window.location.pathname)) return;
 
-    // Немного подождем DOM
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Переменная для хранения текущей валюты
-    let currentSelectedCurrency = 'RUB';
-
-    // Функция для создания и показа выпадающего меню
-    function showCurrencyMenu(priceBlock: HTMLElement, updateCallback: (currency: string) => Promise<void>) {
-        console.log("showCurrencyMenu вызвана для блока:", priceBlock, "Текущая валюта:", currentSelectedCurrency);
-
-        // Удаляем старое меню, если есть
-        const existingMenu = document.querySelector('.currency-menu') as HTMLElement | null;
-        if (existingMenu) {
-            console.log("Удаляем старое меню:", existingMenu);
-            existingMenu.remove();
-        }
-
-        // Создаем контейнер для меню
-        const menu = document.createElement('div');
-        menu.className = 'currency-menu';
-        menu.style.position = 'absolute';
-        menu.style.top = `${priceBlock.getBoundingClientRect().bottom + window.scrollY}px`;
-        menu.style.left = `${priceBlock.getBoundingClientRect().left + window.scrollX}px`;
-        menu.style.zIndex = '10000';
-        menu.style.backgroundColor = '#2a475e';
-        menu.style.border = '1px solid #66ccff';
-        menu.style.borderRadius = '4px';
-        menu.style.padding = '5px';
-        menu.style.boxShadow = '0 2px 8px rgba(0,0,0,0.5)';
-        menu.style.minWidth = '100px';
-
-        // Создаем select
-        const select = document.createElement('select');
-        select.style.backgroundColor = '#2a475e';
-        select.style.color = '#66ccff';
-        select.style.border = 'none';
-        select.style.padding = '2px';
-        select.style.cursor = 'pointer';
-        select.style.fontSize = '12px';
-        select.style.width = '100%';
-
-        // Список валют
-        const currencies = ['RUB', 'USD', 'EUR', 'KZT', 'GBP', 'BYN', 'UAH'];
-        currencies.forEach(currency => {
-            const option = document.createElement('option');
-            option.value = currency;
-            option.textContent = currency;
-            // Используем currentSelectedCurrency вместо параметра
-            if (currency === currentSelectedCurrency) {
-                option.selected = true;
-            }
-            select.appendChild(option);
-        });
-
-        // Обработчик выбора валюты
-        select.addEventListener('change', async (event) => {
-            const newCurrency = (event.target as HTMLSelectElement).value;
-            console.log("Выбрана валюта:", newCurrency);
-            // Обновляем глобальную переменную
-            currentSelectedCurrency = newCurrency;
-            await updateCallback(newCurrency);
-            menu.remove(); // Удаляем меню после выбора
-        });
-
-        // Удаляем меню при клике вне его
-        const closeMenu = (event: MouseEvent) => {
-            if (!menu.contains(event.target as Node)) {
-                console.log("Клик вне меню, удаляем:", menu);
-                menu.remove();
-            }
-        };
-        document.addEventListener('click', closeMenu, { once: true });
-
-        menu.appendChild(select);
-        document.body.appendChild(menu);
-        console.log("Меню создано и добавлено в DOM:", menu);
-    }
-
-    // Функция для обновления цен
-    async function updatePrices(selectedCurrency: string) {
-        console.log("updatePrices вызвана с валютой:", selectedCurrency);
-        // Обновляем глобальную переменную
-        currentSelectedCurrency = selectedCurrency;
-        
-        const prices: EditionPrice[] = [];
-
-        // Обработка обычных изданий
-        const purchaseAreas = document.querySelectorAll('.game_area_purchase_game');
-        console.log("Найдено блоков game_area_purchase_game:", purchaseAreas.length);
-        for (const area of purchaseAreas) {
-            const editionElement = area.querySelector('h1') as HTMLElement | null;
-            const priceElement = area.querySelector('.discount_final_price, .game_purchase_price, .game_purchase_price.price') as HTMLElement | null;
-
-            const edition = editionElement?.textContent?.trim() || 'Unknown Edition';
-            const price = priceElement?.textContent?.trim() || 'Цена не указана';
-
-            console.log("Обрабатываем издание:", edition, "Цена:", price);
-
-            const convertedPrice = await receiveFrontendMethod({
-                message: price,
-                status: true,
-                count: 69,
-                to_currency: selectedCurrency
-            });
-            console.log("Получена конвертированная цена:", convertedPrice);
-
-            const numericPrice = parseInt(price.replace(/[^\d]/g, '')) || 0;
-            prices.push({ edition, price, numericPrice, convertedPrice });
-
-            // Обновляем или создаем блок с ценой
-            const priceContainer = area.querySelector('.discount_final_price, .game_purchase_price, .game_purchase_price.price') as HTMLElement | null;
-            let customPriceBlock = area.querySelector('.custom-price-block') as HTMLElement | null;
-            if (!customPriceBlock && priceContainer) {
-                customPriceBlock = document.createElement('div');
-                customPriceBlock.className = 'custom-price-block';
-                customPriceBlock.style.display = 'inline-block';
-                customPriceBlock.style.marginRight = '5px';
-                customPriceBlock.style.marginLeft = '10px';
-                customPriceBlock.style.color = '#66ccff';
-                customPriceBlock.style.verticalAlign = 'middle';
-                customPriceBlock.style.backgroundColor = '#1a252f';
-                customPriceBlock.style.padding = '4px 10px';
-                customPriceBlock.style.borderRadius = '4px';
-                customPriceBlock.style.cursor = 'pointer';
-                priceContainer.parentNode?.insertBefore(customPriceBlock, priceContainer);
-
-                // Добавляем текст цены
-                const priceSpan = document.createElement('span');
-                priceSpan.className = 'price-text';
-                customPriceBlock.appendChild(priceSpan);
-
-                // Обработчик клика для показа меню (убрали параметр selectedCurrency)
-                customPriceBlock.addEventListener('click', (event) => {
-                    console.log("Клик по custom-price-block:", customPriceBlock);
-                    event.stopPropagation();
-                    showCurrencyMenu(customPriceBlock!, updatePrices);
-                });
-            }
-            if (customPriceBlock) {
-                const priceText = customPriceBlock.querySelector('span.price-text') as HTMLElement | null;
-                if (priceText) {
-                    priceText.textContent = `~ ${convertedPrice}${selectedCurrency}`;
-                }
-            }
-        }
-
-        // Обработка бандла
-        const bundleArea = document.querySelector('.game_area_purchase_game.bundle') as HTMLElement | null;
-        if (bundleArea) {
-            const bundleEdition = bundleArea.querySelector('h1')?.textContent?.trim() || 'Bundle';
-            const bundlePrice = bundleArea.querySelector('.discount_final_price, .game_purchase_price, .game_purchase_price.price')?.textContent?.trim() || 'Цена не указана';
-
-            console.log("Обрабатываем бандл:", bundleEdition, "Цена:", bundlePrice);
-
-            const convertedPrice = await receiveFrontendMethod({
-                message: bundlePrice,
-                status: true,
-                count: 69,
-                to_currency: selectedCurrency
-            });
-            console.log("Получена конвертированная цена для бандла:", convertedPrice);
-
-            const bundleNumericPrice = parseInt(bundlePrice.replace(/[^\d]/g, '')) || 0;
-            prices.push({ edition: bundleEdition, price: bundlePrice, numericPrice: bundleNumericPrice, convertedPrice });
-
-            let bundlePriceBlock = bundleArea.querySelector('.custom-price-block') as HTMLElement | null;
-            if (!bundlePriceBlock) {
-                const priceContainer = bundleArea.querySelector('.discount_final_price, .game_purchase_price, .game_purchase_price.price') as HTMLElement | null;
-                if (priceContainer) {
-                    bundlePriceBlock = document.createElement('div');
-                    bundlePriceBlock.className = 'custom-price-block';
-                    bundlePriceBlock.style.display = 'inline-block';
-                    bundlePriceBlock.style.marginRight = '5px';
-                    bundlePriceBlock.style.marginLeft = '10px';
-                    bundlePriceBlock.style.color = '#66ccff';
-                    bundlePriceBlock.style.verticalAlign = 'middle';
-                    bundlePriceBlock.style.backgroundColor = '#1a252f';
-                    bundlePriceBlock.style.padding = '5px 10px';
-                    bundlePriceBlock.style.borderRadius = '4px';
-                    bundlePriceBlock.style.cursor = 'pointer';
-                    priceContainer.parentNode?.insertBefore(bundlePriceBlock, priceContainer);
-
-                    // Добавляем текст цены
-                    const priceSpan = document.createElement('span');
-                    priceSpan.className = 'price-text';
-                    bundlePriceBlock.appendChild(priceSpan);
-
-                    // Обработчик клика для показа меню
-                    bundlePriceBlock.addEventListener('click', (event) => {
-                        console.log("Клик по bundle custom-price-block:", bundlePriceBlock);
-                        event.stopPropagation();
-                        showCurrencyMenu(bundlePriceBlock!, updatePrices);
-                    });
-                }
-            }
-            if (bundlePriceBlock) {
-                const priceText = bundlePriceBlock.querySelector('span.price-text') as HTMLElement | null;
-                if (priceText) {
-                    priceText.textContent = `~ ${convertedPrice}${selectedCurrency}`;
-                }
-            }
-        }
-
-        // Бесплатная игра
-        if (document.querySelector('.free_to_play')) {
-            const convertedPrice = await receiveFrontendMethod({
-                message: "0",
-                status: true,
-                count: 69,
-                to_currency: selectedCurrency
-            });
-            console.log("Получена конвертированная цена для бесплатной игры:", convertedPrice);
-
-            prices.push({ edition: 'Free to Play', price: 'Free', numericPrice: 0, convertedPrice });
-
-            const freeArea = document.querySelector('.free_to_play') as HTMLElement | null;
-            let freePriceBlock = freeArea?.querySelector('.custom-price-block') as HTMLElement | null;
-            if (!freePriceBlock && freeArea) {
-                freePriceBlock = document.createElement('div');
-                freePriceBlock.className = 'custom-price-block';
-                freePriceBlock.style.display = 'inline-block';
-                freePriceBlock.style.marginRight = '5px';
-                freePriceBlock.style.marginLeft = '10px';
-                freePriceBlock.style.color = '#66ccff';
-                freePriceBlock.style.verticalAlign = 'middle';
-                freePriceBlock.style.backgroundColor = '#1a252f';
-                freePriceBlock.style.padding = '5px 10px';
-                freePriceBlock.style.borderRadius = '4px';
-                freePriceBlock.style.cursor = 'pointer';
-                freeArea.appendChild(freePriceBlock);
-
-                // Добавляем текст цены
-                const priceSpan = document.createElement('span');
-                priceSpan.className = 'price-text';
-                freePriceBlock.appendChild(priceSpan);
-
-                // Обработчик клика для показа меню
-                freePriceBlock.addEventListener('click', (event) => {
-                    console.log("Клик по free-to-play custom-price-block:", freePriceBlock);
-                    event.stopPropagation();
-                    showCurrencyMenu(freePriceBlock!, updatePrices);
-                });
-            }
-            if (freePriceBlock) {
-                const priceText = freePriceBlock.querySelector('span.price-text') as HTMLElement | null;
-                if (priceText) {
-                    priceText.textContent = `~ ${convertedPrice}${selectedCurrency}`;
-                }
-            }
-        }
-
-        console.log("Цены обновлены для валюты:", selectedCurrency, "Всего обработано цен:", prices.length);
-    }
-
-    // Инициализируем с RUB по умолчанию
+    await fetchRates();
+    await new Promise(r => setTimeout(r, 800));
     await updatePrices('RUB');
 }
