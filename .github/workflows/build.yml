@@ -1,0 +1,58 @@
+name: Build Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., 1.0.0)'
+        required: false
+        default: 'dev'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Create zip
+        run: |
+          mkdir -p build/SCC/.millennium
+          cp -r .millennium/Dist build/SCC/.millennium/
+          cp plugin.json build/SCC/
+          cp README.md build/SCC/ 2>/dev/null || true
+          cd build && zip -r SCC-${{ inputs.version }}.zip SCC
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCC-${{ inputs.version }}
+          path: build/SCC/
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Create Release
+        if: ${{ inputs.version != 'dev' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: SCC v${{ inputs.version }}
+          files: build/SCC-${{ inputs.version }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
